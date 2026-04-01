@@ -24,16 +24,9 @@
         </div>
         <select class="filter-select" id="filter-branch">
           <option value="">All Branches</option>
-          <option>Common</option>
-          <option>CSE</option><option>ECE</option><option>EE</option>
-          <option>ME</option><option>CE</option><option>IT</option>
         </select>
         <select class="filter-select" id="filter-sem">
           <option value="">All Semesters</option>
-          <option value="1">Sem 1</option><option value="2">Sem 2</option>
-          <option value="3">Sem 3</option><option value="4">Sem 4</option>
-          <option value="5">Sem 5</option><option value="6">Sem 6</option>
-          <option value="7">Sem 7</option><option value="8">Sem 8</option>
         </select>
         <select class="filter-select" id="filter-course">
           <option value="">All Courses</option>
@@ -62,6 +55,24 @@ let allCourses = [];
   await initShell('notes');
 
   [allNotes, allCourses] = await Promise.all([getNotes(), getCourses()]);
+
+  // Derive unique branches and semesters from live courses data
+  const branches  = [...new Set(allCourses.map(c => c.branch))].sort();
+  const semesters = [...new Set(allCourses.map(c => c.semester))].sort((a, b) => a - b);
+
+  const branchSel = document.getElementById('filter-branch');
+  branches.forEach(b => {
+    const o = document.createElement('option');
+    o.value = b; o.textContent = b;
+    branchSel.appendChild(o);
+  });
+
+  const semSel = document.getElementById('filter-sem');
+  semesters.forEach(s => {
+    const o = document.createElement('option');
+    o.value = s; o.textContent = `Sem ${s}`;
+    semSel.appendChild(o);
+  });
 
   // populate course dropdown
   const sel = document.getElementById('filter-course');
@@ -183,6 +194,11 @@ function attachDownload(btn) {
       btn.disabled = false; btn.textContent = 'Download';
     }
   });
+}
+</script>
+</body>
+</html>
+
 }
 </script>
 </body>
