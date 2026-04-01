@@ -24,9 +24,6 @@
         </div>
         <select class="filter-select" id="filter-branch">
           <option value="">All Branches</option>
-          <option>Common</option>
-          <option>CSE</option><option>ECE</option><option>EE</option>
-          <option>ME</option><option>CE</option><option>IT</option>
         </select>
         <select class="filter-select" id="filter-course">
           <option value="">All Courses</option>
@@ -55,6 +52,15 @@ let allCourses = [];
   await initShell('textbooks');
 
   [allBooks, allCourses] = await Promise.all([getTextbooks(), getCourses()]);
+
+  // Derive unique branches from live courses data
+  const branches = [...new Set(allCourses.map(c => c.branch))].sort();
+  const branchSel = document.getElementById('filter-branch');
+  branches.forEach(b => {
+    const o = document.createElement('option');
+    o.value = b; o.textContent = b;
+    branchSel.appendChild(o);
+  });
 
   const sel = document.getElementById('filter-course');
   allCourses.forEach(c => {
