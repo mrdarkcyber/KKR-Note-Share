@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Upload Notes – KKR Note-Share Portal</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="toast-container"></div>
+
+<div class="app-layout" id="app-layout">
+  <div class="main-content" id="main-content">
+    <div class="page-header">
+      <h2>⬆️ Upload Notes</h2>
+      <a href="notes.html" class="btn btn-outline btn-sm">← Back to Notes</a>
+    </div>
+
+    <div class="page-body">
+      <div class="upload-card">
+        <h3>Share Your Notes</h3>
+        <p class="upload-desc">Upload your handwritten or typed notes as a PDF to help your batch-mates.</p>
+
+        <!-- Drop zone -->
+        <div class="drop-zone" id="drop-zone">
+          <input type="file" id="file-input" accept=".pdf,application/pdf" />
+          <div class="drop-icon">📄</div>
+          <div class="drop-title">Drop PDF here or click to browse</div>
+          <div class="drop-hint">Only PDF files accepted · Max 20 MB</div>
+        </div>
+        <div id="file-preview" class="hidden file-selected">
+          <span>📎</span>
+          <span class="file-name" id="file-name"></span>
+          <span class="file-size" id="file-size"></span>
+          <button class="btn btn-outline btn-sm" id="clear-file">✕</button>
+        </div>
+        <div class="upload-progress hidden" id="progress-wrap">
+          <div class="upload-progress-bar" id="progress-bar"></div>
+        </div>
+
+        <div style="height:24px"></div>
+
+        <!-- Metadata -->
+        <div class="form-group">
+          <label>Title <span style="color:var(--red)">*</span></label>
+          <input type="text" id="title" placeholder="e.g. Unit 3 – Dynamic Programming" />
+        </div>
+
+        <div class="form-group">
+          <label>Course <span style="color:var(--red)">*</span></label>
+          <select id="course">
+            <option value="">Select a course…</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Unit / Module</label>
+            <input type="number" id="unit" min="1" max="10" placeholder="e.g. 3" />
+          </div>
+          <div class="form-group">
+            <label>Tags (comma separated)</label>
+            <input type="text" id="tags" placeholder="dynamic programming, recursion" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Short Description</label>
+          <textarea id="desc" rows="3" placeholder="Optional — briefly describe what's in these notes"></textarea>
+        </div>
+
+        <button class="btn btn-primary" id="upload-btn" style="max-width:240px">
+          Upload Notes
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="supabase.js"></script>
+<script src="app.js"></script>
+<script>
+let selectedFile = null;
+const MAX_SIZE = 20 * 1024 * 1024; // 20 MB
+
+(async () => {
+  document.getElementById('app-layout').insertAdjacentHTML('afterbegin', renderSidebar());
+  document.getElementById('main-content').insertAdjacentHTML('afterbegin', renderMobileHeader('Upload Notes'));
+  const { user } = await initShell('upload-note');
+
+  // load courses
+  const courses = await getCourses();
+  const sel = document.getElementById('course');
+  const grouped = {};
+  courses.forEach(c => {
+    const key = `${c.branch} – Sem ${c.semester}`;
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(c);
+  });
+  Object.entries(grouped).forEach(([label, cs]) => {
+    const og = document.createElement('optgroup');
+    og.label = label;
+    cs.forEach(c => {
+      const o = document.createElement('option');
+      o.value = c.id;
+      o.textContent = `${c.code} – ${c.name}`;
+      og.appendChild(o);
+    });
+    sel.appendChild(og);
+  });
+
+  // file input
+  const fi = document.getElementById('file-input');
+  const dz = document.getElementById('drop-zone');
+
+  fi.addEventListener('change', () => handleFile(fi.files[0]));
+
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault();
+    dz.classList.remove('drag-over');
+    handleFile(e.dataTransfer.files[0]);
+  });
+
+  document.getElementById('clear-file').addEventListener('click', clearFile);
+
+  // upload
+  document.getElementById('upload-btn').addEventListener('click', async () => {
+    const title    = document.getElementById('title').value.trim();
+    const courseId = document.getElementById('course').value;
+    const unit     = document.getElementById('unit').value;
+    const tagsRaw  = document.getElementById('tags').value.trim();
+    const desc     = document.getElementById('desc').value.trim();
+
+    if (!selectedFile) return showToast('Please select a PDF file.', 'error');
+    if (!title)        return showToast('Please enter a title.', 'error');
+    if (!courseId)     return showToast('Please select a course.', 'error');
+
+    const btn = document.getElementById('upload-btn');
+    btn.disabled = true; btn.textContent = 'Uploading…';
+    showProgress(30);
+
+    try {
+      const path = await uploadPDF('notes', selectedFile, user.id);
+      showProgress(70);
+
+      const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+      await insertNote({
+        title,
+        description: desc || null,
+        course_id: courseId,
+        uploaded_by: user.id,
+        storage_path: path,
+        file_size: selectedFile.size,
+        unit: unit ? Number(unit) : null,
+        tags
+      });
+
+      showProgress(100);
+      showToast('Notes uploaded successfully! 🎉', 'success');
+      setTimeout(() => window.location.href = 'notes.html', 1000);
+    } catch(e) {
+      showToast(e.message, 'error');
+      btn.disabled = false; btn.textContent = 'Upload Notes';
+      showProgress(0);
+    }
+  });
+})();
+
+function handleFile(file) {
+  if (!file) return;
+  if (file.type !== 'application/pdf' && !file.name.endsWith('.pdf'))
+    return showToast('Only PDF files are accepted.', 'error');
+  if (file.size > MAX_SIZE)
+    return showToast('File too large. Max 20 MB.', 'error');
+  selectedFile = file;
+  document.getElementById('drop-zone').classList.add('hidden');
+  document.getElementById('file-preview').classList.remove('hidden');
+  document.getElementById('file-name').textContent = file.name;
+  document.getElementById('file-size').textContent = fmtBytes(file.size);
+}
+
+function clearFile() {
+  selectedFile = null;
+  document.getElementById('file-input').value = '';
+  document.getElementById('drop-zone').classList.remove('hidden');
+  document.getElementById('file-preview').classList.add('hidden');
+  showProgress(0);
+}
+
+function showProgress(pct) {
+  const wrap = document.getElementById('progress-wrap');
+  const bar  = document.getElementById('progress-bar');
+  if (pct > 0) wrap.classList.remove('hidden'); else wrap.classList.add('hidden');
+  bar.style.width = pct + '%';
+}
+</script>
+</body>
+</html>

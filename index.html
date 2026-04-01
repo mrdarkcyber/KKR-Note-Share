@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KKR Note-Share Portal – Login</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="toast-container"></div>
+
+  <div class="auth-page">
+    <!-- Left decorative panel -->
+    <div class="auth-panel">
+      <div class="logo">
+        <div class="logo-icon">📚</div>
+        <div class="logo-text">
+          KKR Note-Share
+          <span>Academic Resource Portal</span>
+        </div>
+      </div>
+      <h1>Learn. Share.<br><em>Grow Together.</em></h1>
+      <p>The central hub for NIT Kurukshetra students to share notes and access textbooks for every course.</p>
+      <div class="features">
+        <div class="feat">
+          <div class="feat-icon">📄</div>
+          <div>
+            <strong style="color:#fff">Handwritten & Typed Notes</strong><br>
+            Upload your notes as PDFs to help your batch-mates.
+          </div>
+        </div>
+        <div class="feat">
+          <div class="feat-icon">📖</div>
+          <div>
+            <strong style="color:#fff">Textbook Library</strong><br>
+            Reference books for every semester, curated by seniors.
+          </div>
+        </div>
+        <div class="feat">
+          <div class="feat-icon">🔒</div>
+          <div>
+            <strong style="color:#fff">Students Only</strong><br>
+            Access restricted to verified @nitkkr.ac.in email IDs.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right form panel -->
+    <div class="auth-form-panel">
+      <div class="auth-card">
+        <h2>Welcome back</h2>
+        <p class="subtitle">Sign in to your student account to continue.</p>
+
+        <div class="auth-tabs">
+          <button class="auth-tab active" data-tab="login">Sign In</button>
+          <button class="auth-tab" data-tab="register">Create Account</button>
+        </div>
+
+        <!-- LOGIN FORM -->
+        <div id="login-form">
+          <div class="form-group">
+            <label>College Email</label>
+            <input type="email" id="login-email" placeholder="123456789@nitkkr.ac.in" autocomplete="email" />
+            <p class="form-hint">Format: 9-digit roll number @nitkkr.ac.in</p>
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="login-pwd" placeholder="Your password" autocomplete="current-password" maxlength="8" />
+          </div>
+          <button class="btn btn-primary" id="login-btn">Sign In</button>
+        </div>
+
+        <!-- REGISTER FORM -->
+        <div id="register-form" class="hidden">
+          <div class="form-group">
+            <label>College Email</label>
+            <input type="email" id="reg-email" placeholder="123456789@nitkkr.ac.in" autocomplete="email" />
+            <p class="form-hint">Must be your official NIT KKR email</p>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Password</label>
+              <input type="password" id="reg-pwd" placeholder="Max 8 chars" maxlength="8" />
+            </div>
+            <div class="form-group">
+              <label>Confirm Password</label>
+              <input type="password" id="reg-pwd2" placeholder="Repeat" maxlength="8" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Full Name</label>
+            <input type="text" id="reg-name" placeholder="Your full name" />
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Branch</label>
+              <select id="reg-branch">
+                <option value="">Select</option>
+                <option>CSE</option><option>ECE</option><option>EE</option>
+                <option>ME</option><option>CE</option><option>IT</option>
+                <option>CH</option><option>BT</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Year</label>
+              <select id="reg-year">
+                <option value="">Select</option>
+                <option value="1">1st Year</option>
+                <option value="2">2nd Year</option>
+                <option value="3">3rd Year</option>
+                <option value="4">4th Year</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="register-btn">Create Account</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Supabase CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="supabase.js"></script>
+  <script>
+    // ── Redirect if already logged in ─────────────────────────
+    (async () => {
+      const user = await getUser();
+      if (user) window.location.href = 'dashboard.html';
+    })();
+
+    // ── Tab switching ──────────────────────────────────────────
+    document.querySelectorAll('.auth-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const which = tab.dataset.tab;
+        document.getElementById('login-form').classList.toggle('hidden', which !== 'login');
+        document.getElementById('register-form').classList.toggle('hidden', which !== 'register');
+      });
+    });
+
+    // ── Toast helper ───────────────────────────────────────────
+    function showToast(msg, type = '') {
+      const c = document.getElementById('toast-container');
+      const t = document.createElement('div');
+      t.className = `toast ${type}`;
+      t.textContent = msg;
+      c.appendChild(t);
+      setTimeout(() => t.remove(), 3800);
+    }
+
+    function setLoading(btn, loading) {
+      btn.disabled = loading;
+      btn.textContent = loading ? 'Please wait…' : btn.dataset.label;
+    }
+
+    // ── Login ──────────────────────────────────────────────────
+    const loginBtn = document.getElementById('login-btn');
+    loginBtn.dataset.label = 'Sign In';
+    loginBtn.addEventListener('click', async () => {
+      const email = document.getElementById('login-email').value.trim();
+      const pwd   = document.getElementById('login-pwd').value;
+      if (!email || !pwd) return showToast('Please fill all fields.', 'error');
+      setLoading(loginBtn, true);
+      try {
+        await signIn(email, pwd);
+        showToast('Signed in!', 'success');
+        setTimeout(() => window.location.href = 'dashboard.html', 600);
+      } catch (e) {
+        showToast(e.message, 'error');
+        setLoading(loginBtn, false);
+      }
+    });
+
+    // enter key on login
+    ['login-email','login-pwd'].forEach(id =>
+      document.getElementById(id).addEventListener('keydown', e => {
+        if (e.key === 'Enter') loginBtn.click();
+      })
+    );
+
+    // ── Register ───────────────────────────────────────────────
+    const regBtn = document.getElementById('register-btn');
+    regBtn.dataset.label = 'Create Account';
+    regBtn.addEventListener('click', async () => {
+      const email  = document.getElementById('reg-email').value.trim();
+      const pwd    = document.getElementById('reg-pwd').value;
+      const pwd2   = document.getElementById('reg-pwd2').value;
+      const name   = document.getElementById('reg-name').value.trim();
+      const branch = document.getElementById('reg-branch').value;
+      const year   = document.getElementById('reg-year').value;
+
+      if (!email || !pwd || !pwd2) return showToast('Fill in required fields.', 'error');
+      if (pwd !== pwd2) return showToast('Passwords do not match.', 'error');
+      if (pwd.length > 8) return showToast('Password must be at most 8 characters.', 'error');
+
+      setLoading(regBtn, true);
+      try {
+        await signUp(email, pwd, { full_name: name, branch, year: Number(year) });
+        showToast('Account created! Check your email to confirm.', 'success');
+        // switch to login tab
+        document.querySelector('[data-tab="login"]').click();
+        setLoading(regBtn, false);
+      } catch (e) {
+        showToast(e.message, 'error');
+        setLoading(regBtn, false);
+      }
+    });
+  </script>
+</body>
+</html>

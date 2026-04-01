@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard – KKR Note-Share</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="toast-container"></div>
+
+<div class="app-layout" id="app-layout">
+  <!-- sidebar injected by JS -->
+
+  <div class="main-content" id="main-content">
+    <!-- mobile header injected by JS -->
+
+    <div class="page-header">
+      <h2>Dashboard</h2>
+      <a href="upload-note.html" class="btn btn-amber btn-sm">＋ Upload Notes</a>
+    </div>
+
+    <div class="page-body">
+      <!-- Stats -->
+      <div class="stat-grid" id="stat-grid">
+        <div class="stat-card">
+          <div class="stat-icon amber">📄</div>
+          <div>
+            <div class="stat-value" id="stat-notes">—</div>
+            <div class="stat-label">Total Notes</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon navy">📖</div>
+          <div>
+            <div class="stat-value" id="stat-books">—</div>
+            <div class="stat-label">Textbooks</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon green">🎓</div>
+          <div>
+            <div class="stat-value" id="stat-courses">—</div>
+            <div class="stat-label">Courses</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon red">⬇️</div>
+          <div>
+            <div class="stat-value" id="stat-downloads">—</div>
+            <div class="stat-label">Downloads</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent Notes -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <h3 style="font-size:1.2rem">Recent Notes</h3>
+        <a href="notes.html" style="font-size:.85rem;color:var(--amber);font-weight:600">View all →</a>
+      </div>
+      <div class="resource-grid" id="recent-notes">
+        <p style="color:var(--text-soft)">Loading…</p>
+      </div>
+
+      <!-- Recent Textbooks -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin:36px 0 16px">
+        <h3 style="font-size:1.2rem">Recent Textbooks</h3>
+        <a href="textbooks.html" style="font-size:.85rem;color:var(--amber);font-weight:600">View all →</a>
+      </div>
+      <div class="resource-grid" id="recent-books">
+        <p style="color:var(--text-soft)">Loading…</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="supabase.js"></script>
+<script src="app.js"></script>
+<script>
+(async () => {
+  // inject sidebar
+  document.getElementById('app-layout').insertAdjacentHTML('afterbegin', renderSidebar());
+  document.getElementById('main-content').insertAdjacentHTML('afterbegin', renderMobileHeader('Dashboard'));
+
+  await initShell('dashboard');
+
+  // load stats
+  const [notes, books, courses] = await Promise.all([
+    getNotes(), getTextbooks(), getCourses()
+  ]);
+
+  document.getElementById('stat-notes').textContent   = notes.length;
+  document.getElementById('stat-books').textContent   = books.length;
+  document.getElementById('stat-courses').textContent = courses.length;
+  const totalDl = [...notes, ...books].reduce((s, r) => s + (r.downloads || 0), 0);
+  document.getElementById('stat-downloads').textContent = totalDl;
+
+  // render recent
+  const renderGrid = (items, container) => {
+    if (!items.length) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div>
+        <h3>Nothing here yet</h3><p>Be the first to upload!</p></div>`;
+      return;
+    }
+    container.innerHTML = items.slice(0, 4).map(buildCard).join('');
+    container.querySelectorAll('.download-btn').forEach(attachDownload);
+  };
+
+  renderGrid(notes, document.getElementById('recent-notes'));
+  renderGrid(books, document.getElementById('recent-books'));
+})();
+
+function buildCard(r) {
+  const isBook = !!r.author;
+  const course = r.courses;
+  return `
+  <div class="resource-card">
+    <div class="rc-top">
+      <div class="rc-pdf-icon">📄</div>
+      <span class="rc-badge ${isBook ? 'amber' : ''}">${isBook ? 'Textbook' : 'Notes'}</span>
+    </div>
+    <div class="rc-title">${r.title}</div>
+    ${r.author ? `<div class="rc-meta">✍️ ${r.author}${r.edition ? ' · ' + r.edition : ''}</div>` : ''}
+    ${course ? `<div class="rc-meta">📚 ${course.code} – ${course.name}</div>` : ''}
+    <div class="rc-meta">🕐 ${timeAgo(r.created_at)} · ${fmtBytes(r.file_size)}</div>
+    <div class="rc-footer">
+      <span class="rc-downloads">⬇️ ${r.downloads || 0}</span>
+      <div class="rc-actions">
+        <button class="btn btn-amber btn-sm download-btn"
+          data-id="${r.id}"
+          data-path="${r.storage_path}"
+          data-bucket="${isBook ? 'textbooks' : 'notes'}"
+          data-table="${isBook ? 'textbooks' : 'notes'}">
+          Download
+        </button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function attachDownload(btn) {
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const url = await getSignedURL(btn.dataset.bucket, btn.dataset.path);
+      await incrementDownloads(btn.dataset.table, btn.dataset.id);
+      window.open(url, '_blank');
+      // update counter in UI
+      const counter = btn.closest('.resource-card').querySelector('.rc-downloads');
+      const cur = parseInt(counter.textContent.replace(/\D/g,'')) || 0;
+      counter.textContent = `⬇️ ${cur + 1}`;
+    } catch(e) {
+      showToast('Could not get download link. Try again.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Download';
+    }
+  });
+}
+</script>
+</body>
+</html>

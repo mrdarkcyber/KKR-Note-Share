@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Textbooks – KKR Note-Share Portal</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="toast-container"></div>
+
+<div class="app-layout" id="app-layout">
+  <div class="main-content" id="main-content">
+    <div class="page-header">
+      <h2>📖 Textbook Library</h2>
+      <a href="upload-book.html" class="btn btn-amber btn-sm">＋ Upload Textbook</a>
+    </div>
+
+    <div class="page-body">
+      <div class="filter-bar">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search" placeholder="Search by title, author…" />
+        </div>
+        <select class="filter-select" id="filter-branch">
+          <option value="">All Branches</option>
+          <option>Common</option>
+          <option>CSE</option><option>ECE</option><option>EE</option>
+          <option>ME</option><option>CE</option><option>IT</option>
+        </select>
+        <select class="filter-select" id="filter-course">
+          <option value="">All Courses</option>
+        </select>
+        <button class="btn btn-outline btn-sm" id="clear-filters">Clear</button>
+      </div>
+
+      <div id="results-count" style="font-size:.85rem;color:var(--text-soft);margin-bottom:16px"></div>
+      <div class="resource-grid" id="books-grid">
+        <p style="color:var(--text-soft)">Loading…</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="supabase.js"></script>
+<script src="app.js"></script>
+<script>
+let allBooks = [];
+let allCourses = [];
+
+(async () => {
+  document.getElementById('app-layout').insertAdjacentHTML('afterbegin', renderSidebar());
+  document.getElementById('main-content').insertAdjacentHTML('afterbegin', renderMobileHeader('Textbooks'));
+  await initShell('textbooks');
+
+  [allBooks, allCourses] = await Promise.all([getTextbooks(), getCourses()]);
+
+  const sel = document.getElementById('filter-course');
+  allCourses.forEach(c => {
+    const o = document.createElement('option');
+    o.value = c.id;
+    o.textContent = `${c.code} – ${c.name}`;
+    o.dataset.branch = c.branch;
+    sel.appendChild(o);
+  });
+
+  render();
+
+  ['search','filter-branch','filter-course'].forEach(id => {
+    document.getElementById(id).addEventListener('input', render);
+    document.getElementById(id).addEventListener('change', () => {
+      if (id === 'filter-branch') filterCourseDropdown();
+      render();
+    });
+  });
+
+  document.getElementById('clear-filters').addEventListener('click', () => {
+    document.getElementById('search').value = '';
+    document.getElementById('filter-branch').value = '';
+    document.getElementById('filter-course').value = '';
+    filterCourseDropdown();
+    render();
+  });
+})();
+
+function filterCourseDropdown() {
+  const branch = document.getElementById('filter-branch').value;
+  const sel = document.getElementById('filter-course');
+  Array.from(sel.options).forEach(o => {
+    if (!o.value) return;
+    o.hidden = !!(branch && o.dataset.branch !== branch && o.dataset.branch !== 'Common');
+  });
+  if (sel.options[sel.selectedIndex]?.hidden) sel.value = '';
+}
+
+function render() {
+  const q       = document.getElementById('search').value.toLowerCase();
+  const branchF = document.getElementById('filter-branch').value;
+  const courseF = document.getElementById('filter-course').value;
+
+  const filtered = allBooks.filter(b => {
+    const c = b.courses;
+    if (q && !b.title.toLowerCase().includes(q) && !b.author?.toLowerCase().includes(q)) return false;
+    if (courseF && b.course_id !== courseF) return false;
+    if (branchF && c && c.branch !== branchF && c.branch !== 'Common') return false;
+    return true;
+  });
+
+  const grid = document.getElementById('books-grid');
+  document.getElementById('results-count').textContent =
+    `${filtered.length} textbook${filtered.length !== 1 ? 's' : ''} found`;
+
+  if (!filtered.length) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
+      <div class="empty-icon">📚</div>
+      <h3>No textbooks found</h3>
+      <p>Be the first to <a href="upload-book.html" style="color:var(--amber)">upload one</a>!</p>
+    </div>`;
+    return;
+  }
+
+  grid.innerHTML = filtered.map(b => {
+    const c = b.courses;
+    const uploader = b.profiles?.full_name || b.profiles?.roll_no || 'Anonymous';
+    return `
+    <div class="resource-card">
+      <div class="rc-top">
+        <div class="rc-pdf-icon">📄</div>
+        <span class="rc-badge amber">Textbook</span>
+      </div>
+      <div class="rc-title">${b.title}</div>
+      ${b.author ? `<div class="rc-meta">✍️ ${b.author}${b.edition ? ' · ' + b.edition : ''}</div>` : ''}
+      ${c ? `<div class="rc-meta">📚 ${c.code} – ${c.name}</div>` : ''}
+      <div class="rc-meta">👤 Uploaded by ${uploader}</div>
+      <div class="rc-meta">🕐 ${timeAgo(b.created_at)} · ${fmtBytes(b.file_size)}</div>
+      <div class="rc-footer">
+        <span class="rc-downloads">⬇️ ${b.downloads || 0}</span>
+        <div class="rc-actions">
+          <button class="btn btn-amber btn-sm download-btn"
+            data-id="${b.id}" data-path="${b.storage_path}"
+            data-bucket="textbooks" data-table="textbooks">
+            Download
+          </button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  grid.querySelectorAll('.download-btn').forEach(attachDownload);
+}
+
+function attachDownload(btn) {
+  btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.textContent = '…';
+    try {
+      const url = await getSignedURL(btn.dataset.bucket, btn.dataset.path);
+      await incrementDownloads(btn.dataset.table, btn.dataset.id);
+      window.open(url, '_blank');
+      const c = btn.closest('.resource-card').querySelector('.rc-downloads');
+      c.textContent = `⬇️ ${(parseInt(c.textContent.replace(/\D/g,''))||0)+1}`;
+    } catch(e) {
+      showToast('Could not get download link.', 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Download';
+    }
+  });
+}
+</script>
+</body>
+</html>

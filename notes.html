@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Notes – KKR Note-Share Portal</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="toast-container"></div>
+
+<div class="app-layout" id="app-layout">
+  <div class="main-content" id="main-content">
+    <div class="page-header">
+      <h2>📄 Notes Library</h2>
+      <a href="upload-note.html" class="btn btn-amber btn-sm">＋ Upload Notes</a>
+    </div>
+
+    <div class="page-body">
+      <div class="filter-bar">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search" placeholder="Search notes by title…" />
+        </div>
+        <select class="filter-select" id="filter-branch">
+          <option value="">All Branches</option>
+          <option>Common</option>
+          <option>CSE</option><option>ECE</option><option>EE</option>
+          <option>ME</option><option>CE</option><option>IT</option>
+        </select>
+        <select class="filter-select" id="filter-sem">
+          <option value="">All Semesters</option>
+          <option value="1">Sem 1</option><option value="2">Sem 2</option>
+          <option value="3">Sem 3</option><option value="4">Sem 4</option>
+          <option value="5">Sem 5</option><option value="6">Sem 6</option>
+          <option value="7">Sem 7</option><option value="8">Sem 8</option>
+        </select>
+        <select class="filter-select" id="filter-course">
+          <option value="">All Courses</option>
+        </select>
+        <button class="btn btn-outline btn-sm" id="clear-filters">Clear</button>
+      </div>
+
+      <div id="results-count" style="font-size:.85rem;color:var(--text-soft);margin-bottom:16px"></div>
+      <div class="resource-grid" id="notes-grid">
+        <p style="color:var(--text-soft)">Loading…</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="supabase.js"></script>
+<script src="app.js"></script>
+<script>
+let allNotes = [];
+let allCourses = [];
+
+(async () => {
+  document.getElementById('app-layout').insertAdjacentHTML('afterbegin', renderSidebar());
+  document.getElementById('main-content').insertAdjacentHTML('afterbegin', renderMobileHeader('Notes'));
+  await initShell('notes');
+
+  [allNotes, allCourses] = await Promise.all([getNotes(), getCourses()]);
+
+  // populate course dropdown
+  const sel = document.getElementById('filter-course');
+  allCourses.forEach(c => {
+    const o = document.createElement('option');
+    o.value = c.id;
+    o.textContent = `${c.code} – ${c.name}`;
+    o.dataset.branch = c.branch;
+    o.dataset.sem = c.semester;
+    sel.appendChild(o);
+  });
+
+  render();
+
+  // filter listeners
+  ['search','filter-branch','filter-sem','filter-course'].forEach(id => {
+    document.getElementById(id).addEventListener('input', render);
+    document.getElementById(id).addEventListener('change', () => {
+      if (id === 'filter-branch' || id === 'filter-sem') filterCourseDropdown();
+      render();
+    });
+  });
+
+  document.getElementById('clear-filters').addEventListener('click', () => {
+    document.getElementById('search').value = '';
+    document.getElementById('filter-branch').value = '';
+    document.getElementById('filter-sem').value = '';
+    document.getElementById('filter-course').value = '';
+    filterCourseDropdown();
+    render();
+  });
+})();
+
+function filterCourseDropdown() {
+  const branch = document.getElementById('filter-branch').value;
+  const sem    = document.getElementById('filter-sem').value;
+  const sel    = document.getElementById('filter-course');
+  Array.from(sel.options).forEach(o => {
+    if (!o.value) return;
+    const bMatch = !branch || o.dataset.branch === branch || o.dataset.branch === 'Common';
+    const sMatch = !sem    || o.dataset.sem === sem;
+    o.hidden = !(bMatch && sMatch);
+  });
+  if (sel.options[sel.selectedIndex]?.hidden) sel.value = '';
+}
+
+function render() {
+  const q         = document.getElementById('search').value.toLowerCase();
+  const branchF   = document.getElementById('filter-branch').value;
+  const semF      = document.getElementById('filter-sem').value;
+  const courseF   = document.getElementById('filter-course').value;
+
+  const filtered = allNotes.filter(n => {
+    const c = n.courses;
+    if (q && !n.title.toLowerCase().includes(q)) return false;
+    if (courseF && n.course_id !== courseF) return false;
+    if (branchF && c && c.branch !== branchF && c.branch !== 'Common') return false;
+    if (semF && c && String(c.semester) !== semF) return false;
+    return true;
+  });
+
+  const grid = document.getElementById('notes-grid');
+  document.getElementById('results-count').textContent =
+    `${filtered.length} note${filtered.length !== 1 ? 's' : ''} found`;
+
+  if (!filtered.length) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
+      <div class="empty-icon">📭</div>
+      <h3>No notes found</h3>
+      <p>Try adjusting your filters or <a href="upload-note.html" style="color:var(--amber)">upload the first one</a>!</p>
+    </div>`;
+    return;
+  }
+
+  grid.innerHTML = filtered.map(n => {
+    const c = n.courses;
+    const uploader = n.profiles?.full_name || n.profiles?.roll_no || 'Anonymous';
+    return `
+    <div class="resource-card">
+      <div class="rc-top">
+        <div class="rc-pdf-icon">📄</div>
+        <span class="rc-badge">${c ? `Sem ${c.semester}` : 'Notes'}</span>
+      </div>
+      <div class="rc-title">${n.title}</div>
+      ${c ? `<div class="rc-meta">📚 ${c.code} – ${c.name}</div>` : ''}
+      ${n.unit ? `<div class="rc-meta">📌 Unit ${n.unit}</div>` : ''}
+      <div class="rc-meta">👤 ${uploader}</div>
+      <div class="rc-meta">🕐 ${timeAgo(n.created_at)} · ${fmtBytes(n.file_size)}</div>
+      ${n.description ? `<div class="rc-meta" style="margin-top:6px;font-style:italic">"${n.description}"</div>` : ''}
+      ${n.tags?.length ? `<div class="rc-tags">${n.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</div>` : ''}
+      <div class="rc-footer">
+        <span class="rc-downloads">⬇️ ${n.downloads || 0}</span>
+        <div class="rc-actions">
+          <button class="btn btn-amber btn-sm download-btn"
+            data-id="${n.id}" data-path="${n.storage_path}"
+            data-bucket="notes" data-table="notes">
+            Download
+          </button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  grid.querySelectorAll('.download-btn').forEach(attachDownload);
+}
+
+function attachDownload(btn) {
+  btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.textContent = '…';
+    try {
+      const url = await getSignedURL(btn.dataset.bucket, btn.dataset.path);
+      await incrementDownloads(btn.dataset.table, btn.dataset.id);
+      window.open(url, '_blank');
+      const c = btn.closest('.resource-card').querySelector('.rc-downloads');
+      c.textContent = `⬇️ ${(parseInt(c.textContent.replace(/\D/g,''))||0)+1}`;
+    } catch(e) {
+      showToast('Could not get download link.', 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Download';
+    }
+  });
+}
+</script>
+</body>
+</html>
